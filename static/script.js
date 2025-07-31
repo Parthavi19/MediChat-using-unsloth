@@ -1,148 +1,177 @@
-// Initialize welcome time
-document.getElementById('welcomeTime').textContent = new Date().toLocaleTimeString();
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize welcome time
+    document.getElementById('welcomeTime').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-// Auto-resize textarea
-const messageInput = document.getElementById('messageInput');
-messageInput.addEventListener('input', function() {
-    this.style.height = 'auto';
-    this.style.height = Math.min(this.scrollHeight, 100) + 'px';
-});
-
-// Send message on Enter (but allow Shift+Enter for new lines)
-messageInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-    }
-});
-
-// Toggle settings panel
-document.getElementById('settingsToggle').addEventListener('click', toggleSettings);
-function toggleSettings() {
-    const panel = document.getElementById('settingsPanel');
-    const toggle = document.getElementById('settingsToggle');
-    const isOpen = panel.style.display === 'block';
-    panel.style.display = isOpen ? 'none' : 'block';
-    toggle.setAttribute('aria-expanded', !isOpen);
-}
-
-document.getElementById('sendButton').addEventListener('click', sendMessage);
-
-async function sendMessage() {
+    // Auto-resize textarea
     const messageInput = document.getElementById('messageInput');
-    const message = messageInput.value.trim();
-    
-    if (!message) return;
+    messageInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
 
-    const sendButton = document.getElementById('sendButton');
-    const chatMessages = document.getElementById('chatMessages');
-    const typingIndicator = document.getElementById('typingIndicator');
+    // Send message on Enter (allow Shift+Enter for new lines)
+    messageInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
 
-    // Disable input and button
-    messageInput.disabled = true;
-    sendButton.disabled = true;
+    // Bind send button
+    document.getElementById('sendButton').addEventListener('click', sendMessage);
 
-    // Add user message
-    addMessage(message, 'user');
-    messageInput.value = '';
-    messageInput.style.height = 'auto';
+    // Bind settings toggle
+    document.getElementById('settingsToggle').addEventListener('click', toggleSettings);
 
-    // Show typing indicator
-    typingIndicator.style.display = 'block';
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    // Sample medical questions
+    const sampleQuestions = [
+        "What are the symptoms of the common cold?",
+        "How can I prevent heart disease?",
+        "What should I know about diabetes?",
+        "What are the signs of dehydration?",
+        "How much sleep do adults need?"
+    ];
 
-    try {
-        // Get settings
-        const temperature = parseFloat(document.getElementById('temperature').value);
-        const maxLength = parseInt(document.getElementById('maxLength').value);
-
-        // Send request to API
-        const response = await fetch('/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                message: message,
-                temperature: temperature,
-                max_length: maxLength
-            })
+    // Add sample questions
+    const sampleQuestionsDiv = document.getElementById('sampleQuestions');
+    sampleQuestions.forEach(question => {
+        const button = document.createElement('button');
+        button.textContent = question.substring(0, 30) + (question.length > 30 ? '...' : '');
+        button.addEventListener('click', () => {
+            messageInput.value = question;
+            messageInput.focus();
         });
+        sampleQuestionsDiv.appendChild(button);
+    });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+    function toggleSettings() {
+        const panel = document.getElementById('settingsPanel');
+        const toggle = document.getElementById('settingsToggle');
+        const isOpen = panel.style.display === 'block';
+        panel.style.display = isOpen ? 'none' : 'block';
+        toggle.setAttribute('aria-expanded', !isOpen);
+        if (!isOpen) {
+            document.getElementById('temperature').focus();
+        }
+    }
+
+    function saveSettings() {
+        const temperatureInput = document.getElementById('temperature');
+        const maxLengthInput = document.getElementById('maxLength');
+        let temperature = parseFloat(temperatureInput.value);
+        let maxLength = parseInt(maxLengthInput.value);
+
+        // Validate inputs
+        if (isNaN(temperature) || temperature < 0.1 || temperature > 2.0) {
+            temperature = 0.7;
+            temperatureInput.value = 0.7;
+            alert('Temperature must be between 0.1 and 2.0. Reset to default (0.7).');
+        }
+        if (isNaN(maxLength) || maxLength < 50 || maxLength > 500) {
+            maxLength = 200;
+            maxLengthInput.value = 200;
+            alert('Max length must be between 50 and 500. Reset to default (200).');
         }
 
-        const data = await response.json();
-        
-        // Hide typing indicator
-        typingIndicator.style.display = 'none';
-        
-        // Add bot response
-        addMessage(data.response, 'bot');
-
-    } catch (error) {
-        console.error('Error:', error);
-        typingIndicator.style.display = 'none';
-        addMessage('I apologize, but I encountered an error processing your request. Please try again later.', 'bot');
-    } finally {
-        // Re-enable input and button
-        messageInput.disabled = false;
-        sendButton.disabled = false;
-        messageInput.focus();
+        toggleSettings();
     }
-}
 
-function addMessage(content, type) {
-    const chatMessages = document.getElementById('chatMessages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${type}`;
-    
-    const currentTime = new Date().toLocaleTimeString();
-    
-    messageDiv.innerHTML = `
-        <div class="message-content">${formatMessage(content)}</div>
-        <div class="message-time">${currentTime}</div>
-    `;
-    
-    chatMessages.appendChild(messageDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
+    async function sendMessage() {
+        const messageInput = document.getElementById('messageInput');
+        let message = messageInput.value.trim();
 
-function formatMessage(content) {
-    // Basic formatting for better readability
-    return content
-        .replace(/\n/g, '<br>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>');
-}
+        // Sanitize input
+        message = message.replace(/[<>&"]/g, (c) => ({
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '"': '&quot;'
+        }[c])).substring(0, 1000);
 
-// Sample medical questions for quick testing
-const sampleQuestions = [
-    "What are the symptoms of the common cold?",
-    "How can I prevent heart disease?",
-    "What should I know about diabetes?",
-    "What are the signs of dehydration?",
-    "How much sleep do adults need?"
-];
+        if (!message) return;
 
-// Add sample questions button (optional)
-function addSampleQuestions() {
-    const container = document.querySelector('.chat-input-container');
-    const samplesDiv = document.createElement('div');
-    samplesDiv.innerHTML = `
-        <div style="margin-bottom: 10px;">
-            <small>Quick questions:</small>
-            ${sampleQuestions.map(q => 
-                `<button onclick="document.getElementById('messageInput').value='${q}'" 
-                        style="margin: 2px; padding: 4px 8px; font-size: 11px; border: 1px solid #ddd; border-radius: 10px; background: white; cursor: pointer;">
-                    ${q.substring(0, 30)}...
-                </button>`
-            ).join('')}
-        </div>
-    `;
-    container.insertBefore(samplesDiv, container.firstChild);
-}
+        const sendButton = document.getElementById('sendButton');
+        const chatMessages = document.getElementById('chatMessages');
+        const typingIndicator = document.getElementById('typingIndicator');
 
-// Uncomment to add sample questions
-// addSampleQuestions();
+        // Disable input and button
+        messageInput.disabled = true;
+        sendButton.disabled = true;
+
+        // Add user message
+        addMessage(message, 'user');
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+
+        // Show typing indicator
+        typingIndicator.style.display = 'block';
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        try {
+            // Get settings
+            const temperature = parseFloat(document.getElementById('temperature').value);
+            const maxLength = parseInt(document.getElementById('maxLength').value);
+
+            // Send request to API
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    temperature: temperature,
+                    max_length: maxLength
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            // Hide typing indicator
+            typingIndicator.style.display = 'none';
+            
+            // Add bot response
+            addMessage(data.response, 'bot');
+
+        } catch (error) {
+            console.error('Error:', error);
+            typingIndicator.style.display = 'none';
+            addMessage('I apologize, but I encountered an error processing your request. Please try again later.', 'bot');
+        } finally {
+            // Re-enable input and button
+            messageInput.disabled = false;
+            sendButton.disabled = false;
+            messageInput.focus();
+        }
+    }
+
+    function addMessage(content, type) {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+        
+        const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        messageDiv.innerHTML = `
+            <div class="message-content">${formatMessage(content)}</div>
+            <div class="message-time">${currentTime}</div>
+        `;
+        
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function formatMessage(content) {
+        // Enhanced formatting for better readability
+        return content
+            .replace(/\n/g, '<br>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/(\d+\.\s)/g, '<br>$1') // Add line breaks for numbered lists
+            .replace(/(Disclaimer:.*)/g, '<div class="disclaimer-text">$1</div>');
+    }
+});
