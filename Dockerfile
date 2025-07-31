@@ -1,5 +1,5 @@
-# Use NVIDIA CUDA base image for GPU support
-FROM nvidia/cuda:11.8-devel-ubuntu20.04
+# Use a newer NVIDIA CUDA base image for GPU support
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -8,9 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    python3.9 \
-    python3.9-pip \
-    python3.9-dev \
+    python3.10 \
+    python3.10-dev \
+    python3-pip \
     git \
     wget \
     curl \
@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create symbolic link for python
-RUN ln -s /usr/bin/python3.9 /usr/bin/python
+RUN ln -s /usr/bin/python3.10 /usr/bin/python
 
 # Set working directory
 WORKDIR /app
