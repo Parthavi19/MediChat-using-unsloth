@@ -9,6 +9,7 @@ import os
 import logging
 from typing import Optional
 import uvicorn
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +29,14 @@ class ChatResponse(BaseModel):
     response: str
     status: str
 
+def sanitize_input(text: str) -> str:
+    """Sanitize user input to prevent prompt injection"""
+    # Remove control characters and excessive whitespace
+    text = re.sub(r'[\x00-\x1F\x7F]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    # Limit length to prevent abuse
+    return text[:1000]
+
 class MedicalChatbot:
     def __init__(self, model_path: str = "./medical_chatbot_model"):
         self.model_path = model_path
@@ -42,8 +51,8 @@ class MedicalChatbot:
         try:
             logger.info(f"Loading model from {self.model_path}")
             
-            if not os.path.exists(self.model_path):
-                logger.warning(f"Model path {self.model_path} not found. Using base model.")
+            if not os.path.exists(self.model_path) or not os.path.isdir(self.model_path):
+                logger.warning(f"Model path {self.model_path} not found or invalid. Using base model.")
                 model_name = "unsloth/tinyllama-1.1b-bnb-4bit"
             else:
                 model_name = self.model_path
@@ -61,10 +70,12 @@ class MedicalChatbot:
             
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
-            raise e
+            raise HTTPException(status_code=500, detail="Failed to load model")
     
     def create_medical_prompt(self, instruction: str, input_text: str = ""):
         """Create a standardized prompt format for medical conversations"""
+        instruction = sanitize_input(instruction)
+        input_text = sanitize_input(input_text)
         if input_text:
             prompt = f"""Below is a medical instruction that describes a task, paired with input. Write an appropriate response.
 
@@ -89,6 +100,10 @@ class MedicalChatbot:
     def generate_response(self, message: str, max_length: int = 200, temperature: float = 0.7) -> str:
         """Generate response from the medical chatbot"""
         try:
+            # Validate inputs
+            max_length = min(max_length, 1000)  # Cap max_length to prevent abuse
+            temperature = max(0.1, min(temperature, 1.0))  # Clamp temperature
+            
             # Create prompt
             prompt = self.create_medical_prompt(message)
             
@@ -122,7 +137,7 @@ class MedicalChatbot:
             
         except Exception as e:
             logger.error(f"Error generating response: {str(e)}")
-            return f"I apologize, but I encountered an error processing your request. Please try again."
+            return "I apologize, but I encountered an error processing your request. Please try again."
 
 # Initialize the chatbot
 chatbot = MedicalChatbot()
@@ -142,7 +157,7 @@ async def read_root():
                 <p>API is available at <a href="/docs">/docs</a></p>
             </body>
         </html>
-        """)
+        """, status_code=404)
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
@@ -151,9 +166,6 @@ async def chat(request: ChatRequest):
         if not request.message.strip():
             raise HTTPException(status_code=400, detail="Message cannot be empty")
         
-        # Add medical disclaimer
-        disclaimer = "\n\n**Disclaimer: This is an AI assistant and should not replace professional medical advice. Always consult healthcare professionals for medical concerns.**"
-        
         # Generate response
         response = chatbot.generate_response(
             request.message, 
@@ -161,10 +173,12 @@ async def chat(request: ChatRequest):
             request.temperature
         )
         
-        # Add disclaimer to response
-        response_with_disclaimer = response + disclaimer
+        # Conditionally add disclaimer
+        disclaimer = os.environ.get("ADD_DISCLAIMER", "true").lower() == "true"
+        if disclaimer:
+            response += "\n\n**Disclaimer: This is an AI assistant and should not replace professional medical advice. Always consult healthcare professionals for medical concerns.**"
         
-        return ChatResponse(response=response_with_disclaimer, status="success")
+        return ChatResponse(response=response, status="success")
         
     except Exception as e:
         logger.error(f"Chat error: {str(e)}")
