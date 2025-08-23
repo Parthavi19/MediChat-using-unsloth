@@ -4,8 +4,10 @@ uvicorn[standard]>=0.24.0,<0.30.0
 python-multipart>=0.0.6,<0.1.0
 pydantic>=2.4.0,<2.7.0
 
-# Essential ML Dependencies (CPU-only for Cloud Run)
-torch>=2.0.0,<2.3.0
+# PyTorch CPU-only (installed separately in Dockerfile)
+# torch>=2.0.0,<2.3.0
+
+# ML Dependencies
 transformers>=4.35.0,<4.40.0
 datasets>=2.14.0,<2.20.0
 accelerate>=0.24.0,<0.30.0
@@ -14,5 +16,5 @@ accelerate>=0.24.0,<0.30.0
 pandas>=2.0.0,<2.3.0
 numpy>=1.24.0,<1.27.0
 
-# Optional: Add unsloth only if you have a fine-tuned model
-# unsloth @ git+https://github.com/unslothai/unsloth.git
+# Note: unsloth is not included as it requires CUDA and won't work on Cloud Run
+# The app will use fallback responses when the model fails to load
