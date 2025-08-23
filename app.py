@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import logging
@@ -17,6 +18,15 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Medical Chatbot API", version="1.0.0")
 
+# Add CORS middleware - THIS IS CRUCIAL
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your domain
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
+)
+
 class ChatRequest(BaseModel):
     message: str
     max_length: Optional[int] = 200
@@ -28,6 +38,8 @@ class ChatResponse(BaseModel):
 
 def sanitize_input(text: str) -> str:
     """Sanitize user input to prevent prompt injection"""
+    if not text:
+        return ""
     text = re.sub(r'[\x00-\x1F\x7F]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text[:1000]
@@ -84,48 +96,12 @@ class MedicalChatbot:
         
         # Always use fallback for now on Cloud Run for reliability
         return self.get_fallback_response(message)
-        
-        # Commented out model-based generation for Cloud Run stability
-        """
-        if not self.model_loaded:
-            return self.get_fallback_response(message)
-            
-        try:
-            import torch
-            
-            # Create a medical-focused prompt
-            prompt = f"Medical question: {sanitize_input(message)}\nMedical answer:"
-            
-            # Tokenize
-            inputs = self.tokenizer.encode(prompt, return_tensors='pt')
-            
-            # Generate
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    inputs,
-                    max_length=inputs.shape[1] + min(max_length, 150),
-                    temperature=max(0.1, min(temperature, 1.0)),
-                    do_sample=True,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    no_repeat_ngram_size=2
-                )
-            
-            # Decode
-            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            response = response.replace(prompt, "").strip()
-            
-            if len(response) < 10:  # If response too short, use fallback
-                return self.get_fallback_response(message)
-                
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error generating response: {str(e)}")
-            return self.get_fallback_response(message)
-        """
     
     def get_fallback_response(self, message: str) -> str:
         """Provide comprehensive rule-based medical responses"""
+        if not message:
+            return "Please ask me a health-related question and I'll do my best to help!"
+            
         message_lower = message.lower()
         
         # Fever and temperature
@@ -339,6 +315,7 @@ async def startup_event():
         chatbot.load_model_async()
     
     threading.Thread(target=start_model_loading, daemon=True).start()
+    logger.info("Medical Chatbot API started successfully")
 
 # Create static directory if it doesn't exist
 os.makedirs("static", exist_ok=True)
@@ -495,6 +472,15 @@ if not os.path.exists("static/index.html"):
         
         .typing-indicator.show { display: block; }
         
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        
         @media (max-width: 768px) {
             .container { width: 95%; height: 90vh; }
             .message { max-width: 90%; }
@@ -559,6 +545,14 @@ if not os.path.exists("static/index.html"):
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        function addErrorMessage(content) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = content;
+            chatMessages.appendChild(errorDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
         function showTyping() {
             typingIndicator.classList.add('show');
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -570,7 +564,12 @@ if not os.path.exists("static/index.html"):
 
         async function sendMessage() {
             const message = messageInput.value.trim();
-            if (!message) return;
+            console.log('Attempting to send message:', message);
+            
+            if (!message) {
+                console.log('Message is empty, not sending');
+                return;
+            }
 
             // Disable input while processing
             sendButton.disabled = true;
@@ -583,24 +582,36 @@ if not os.path.exists("static/index.html"):
             showTyping();
 
             try {
+                console.log('Making fetch request to /chat');
                 const response = await fetch('/chat', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ message: message })
                 });
 
+                console.log('Response status:', response.status);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 hideTyping();
                 
                 if (data.status === 'success') {
                     addMessage(data.response, false);
                 } else {
-                    addMessage('I apologize, but I encountered an error processing your request. Please try again or rephrase your question.', false);
+                    addErrorMessage('I apologize, but I encountered an error processing your request. Please try again or rephrase your question.');
                 }
             } catch (error) {
+                console.error('Error sending message:', error);
                 hideTyping();
-                addMessage('I\'m having trouble connecting right now. Please check your internet connection and try again.', false);
+                addErrorMessage(`I'm having trouble connecting right now. Error: ${error.message}. Please check your internet connection and try again.`);
             } finally {
                 // Re-enable input
                 sendButton.disabled = false;
@@ -620,6 +631,13 @@ if not os.path.exists("static/index.html"):
 
         // Focus on input when page loads
         messageInput.focus();
+        
+        // Test connection on page load
+        console.log('Page loaded, testing connection...');
+        fetch('/health')
+            .then(response => response.json())
+            .then(data => console.log('Health check successful:', data))
+            .catch(error => console.error('Health check failed:', error));
     </script>
 </body>
 </html>'''
@@ -642,6 +660,7 @@ async def read_root():
             <body>
                 <h1>Medical Chatbot API</h1>
                 <p>API is available at <a href="/docs">/docs</a></p>
+                <p>Health check at <a href="/health">/health</a></p>
             </body>
         </html>
         """, status_code=200)
@@ -650,12 +669,20 @@ async def read_root():
 async def chat(request: ChatRequest):
     """Chat endpoint for the medical chatbot"""
     try:
-        if not request.message.strip():
+        logger.info(f"Received chat request: {request.message[:50]}...")
+        
+        if not request.message or not request.message.strip():
+            logger.warning("Empty message received")
             raise HTTPException(status_code=400, detail="Message cannot be empty")
+        
+        # Sanitize the input
+        sanitized_message = sanitize_input(request.message)
+        if not sanitized_message:
+            raise HTTPException(status_code=400, detail="Invalid message content")
         
         # Generate response
         response = chatbot.generate_response(
-            request.message, 
+            sanitized_message, 
             request.max_length, 
             request.temperature
         )
@@ -664,11 +691,17 @@ async def chat(request: ChatRequest):
         disclaimer = "\n\n**⚠️ Medical Disclaimer:** This information is for educational purposes only and should not replace professional medical advice. Always consult healthcare professionals for medical concerns."
         response += disclaimer
         
+        logger.info("Response generated successfully")
         return ChatResponse(response=response, status="success")
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        return ChatResponse(
+            response="I apologize, but I encountered an error processing your request. Please try again later.",
+            status="error"
+        )
 
 @app.get("/health")
 async def health_check():
@@ -677,7 +710,8 @@ async def health_check():
         "status": "healthy", 
         "model_loaded": chatbot.model_loaded,
         "model_loading": chatbot.loading,
-        "service": "medical_chatbot_cloud_run"
+        "service": "medical_chatbot_api",
+        "version": "1.0.0"
     }
 
 @app.get("/model-status")
@@ -686,11 +720,12 @@ async def model_status():
     return {
         "loaded": chatbot.model_loaded,
         "loading": chatbot.loading,
-        "deployment": "cloud_run"
+        "deployment": "fastapi_server"
     }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
+    logger.info(f"Starting server on port {port}")
     uvicorn.run(
         "app:app", 
         host="0.0.0.0", 
