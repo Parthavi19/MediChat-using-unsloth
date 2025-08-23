@@ -4,10 +4,10 @@ uvicorn[standard]>=0.24.0,<0.30.0
 python-multipart>=0.0.6,<0.1.0
 pydantic>=2.4.0,<2.7.0
 
-# PyTorch CPU-only (installed separately in Dockerfile)
-# torch>=2.0.0,<2.3.0
+# PyTorch CPU-only (for optional model loading)
+torch>=2.0.0,<2.3.0 --index-url https://download.pytorch.org/whl/cpu
 
-# ML Dependencies
+# ML Dependencies (optional - will gracefully fail if not available)
 transformers>=4.35.0,<4.40.0
 datasets>=2.14.0,<2.20.0
 accelerate>=0.24.0,<0.30.0
@@ -16,5 +16,8 @@ accelerate>=0.24.0,<0.30.0
 pandas>=2.0.0,<2.3.0
 numpy>=1.24.0,<1.27.0
 
-# Note: unsloth is not included as it requires CUDA and won't work on Cloud Run
-# The app will use fallback responses when the model fails to load
+# Additional dependencies for stability
+Jinja2>=3.1.2
+requests>=2.31.0
+
+# Note: The app will work with fallback responses even if ML dependencies fail to install
